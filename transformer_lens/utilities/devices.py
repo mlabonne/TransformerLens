@@ -14,6 +14,7 @@ from torch import nn
 import transformer_lens
 
 
+# Fix odd number of GPUs, written by @FailSpy
 def get_device_for_block_index(
     index: int,
     cfg: "transformer_lens.HookedTransformerConfig",
@@ -35,14 +36,23 @@ def get_device_for_block_index(
         torch.device: The device for the specified layer index.
     """
     assert cfg.device is not None
-    layers_per_device = cfg.n_layers // cfg.n_devices
     if device is None:
         device = cfg.device
     device = torch.device(device)
     if device.type == "cpu":
         return device
-    device_index = (device.index or 0) + (index // layers_per_device)
-    return torch.device(device.type, device_index)
+    
+    base_layers_per_device = cfg.n_layers // cfg.n_devices
+    remainder_layers = cfg.n_layers % cfg.n_devices
+    
+    # Determine the device index
+    if index < (base_layers_per_device + 1) * remainder_layers:
+        device_index = index // (base_layers_per_device + 1)
+    else:
+        adjusted_index = index - (base_layers_per_device + 1) * remainder_layers
+        device_index = adjusted_index // base_layers_per_device + remainder_layers
+    
+    return torch.device(device.type, (device.index or 0) + device_index)
 
 
 def move_to_and_update_config(
